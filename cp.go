@@ -74,12 +74,7 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("client_proxy: must connect using HTTP/1.1: %w", err)
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			// TODO hook up logger
-			println("client_proxy: error closing hijacked conn:", err)
-		}
-	}()
+	defer conn.Close() // backup close, normally h2conn.Shutdown will handle this
 	if err := buf.Flush(); err != nil {
 		return fmt.Errorf("client_proxy: unexpected flush error: %w", err)
 	}
