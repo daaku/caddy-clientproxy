@@ -29,7 +29,6 @@ func init() {
 }
 
 type handler struct {
-	conn  *http2.ClientConn
 	proxy *httputil.ReverseProxy
 	done  chan struct{}
 }
@@ -93,7 +92,7 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 
 	done := make(chan struct{})
 	m.handler.Store(&handler{
-		conn: h2conn,
+		done: done,
 		proxy: &httputil.ReverseProxy{
 			Transport: h2conn,
 			Director: func(r *http.Request) {
@@ -101,7 +100,6 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 				r.URL.Scheme = "https"
 			},
 		},
-		done: done,
 	})
 	<-done // wait until we're being replaced
 	ctx, cancel := context.WithTimeout(r.Context(), shutdownTimeout)
