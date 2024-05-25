@@ -3,6 +3,7 @@ package clientproxy
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -105,6 +106,9 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(r.Context(), shutdownTimeout)
 	defer cancel()
 	if err := h2conn.Shutdown(ctx); err != nil {
+		if errors.Is(err, net.ErrClosed) {
+			return nil
+		}
 		return fmt.Errorf("client_proxy: error shutting down ClientConn: %w", err)
 	}
 	return nil
