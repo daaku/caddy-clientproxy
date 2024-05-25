@@ -2,10 +2,12 @@ package clientproxy
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"sync/atomic"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -15,14 +17,21 @@ import (
 	"golang.org/x/net/http2"
 )
 
+var h2t = http2.Transport{}
+
+const (
+	shutdownTimeout = time.Minute
+)
+
 func init() {
 	caddy.RegisterModule(&Middleware{})
 	httpcaddyfile.RegisterHandlerDirective("client_proxy", parseCaddyfile)
 }
 
-var h2t = http2.Transport{
-	// TODO: this enables health checks. make optional/configurable. how to use?
-	ReadIdleTimeout: time.Minute,
+type handler struct {
+	conn  *http2.ClientConn
+	proxy *httputil.ReverseProxy
+	done  chan struct{}
 }
 
 // Middleware implements an HTTP handler that allows for a client to become the
@@ -31,7 +40,8 @@ type Middleware struct {
 	// The secret to allow for registering a client.
 	Secret string `json:"secret,omitempty"`
 
-	handler http.Handler
+	// stores a *handler, when available
+	handler atomic.Value
 }
 
 // CaddyModule returns the Caddy module information.
@@ -74,23 +84,37 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 		return fmt.Errorf("client_proxy: unexpected flush error: %w", err)
 	}
 	if buf.Reader.Buffered() > 0 {
-		// TODO: figure out a way to make the initial request sized so that we don't
-		// need to wrap the net.Conn. it will probably let magical interfaces on
-		// net.Conn allow to be used?
 		conn = &bufConn{Conn: conn, Reader: buf.Reader}
 	}
 	h2conn, err := h2t.NewClientConn(conn)
 	if err != nil {
 		return fmt.Errorf("client_proxy: unable to create ClientConn: %w", err)
 	}
-	// TODO: mutex guard cleanup etc
-	m.handler = &httputil.ReverseProxy{
-		Transport: h2conn,
-		Director: func(r *http.Request) {
-			r.URL.Scheme = "https"
-		},
+
+	// close the old one, if one is there
+	if handler, ok := m.handler.Load().(*handler); ok {
+		close(handler.done)
 	}
-	select {}
+
+	done := make(chan struct{})
+	m.handler.Store(&handler{
+		conn: h2conn,
+		proxy: &httputil.ReverseProxy{
+			Transport: h2conn,
+			Director: func(r *http.Request) {
+				// TODO: what
+				r.URL.Scheme = "https"
+			},
+		},
+		done: done,
+	})
+	<-done // wait until we're being replaced
+	ctx, cancel := context.WithTimeout(r.Context(), shutdownTimeout)
+	defer cancel()
+	if err := h2conn.Shutdown(ctx); err != nil {
+		return fmt.Errorf("client_proxy: error shutting down ClientConn: %w", err)
+	}
+	return nil
 }
 
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
@@ -98,11 +122,11 @@ func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next cadd
 	if r.URL.Path[1:] == m.Secret {
 		return m.acceptProxy(w, r)
 	}
-	if m.handler == nil {
-		return next.ServeHTTP(w, r)
+	if handler, ok := m.handler.Load().(*handler); ok {
+		handler.proxy.ServeHTTP(w, r)
+		return nil
 	}
-	m.handler.ServeHTTP(w, r)
-	return nil
+	return next.ServeHTTP(w, r)
 }
 
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
