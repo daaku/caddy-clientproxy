@@ -1,4 +1,4 @@
-module github.com/daaku/caddyclientproxy
+module github.com/daaku/caddy-client-proxy
 
 go 1.22.3
 
