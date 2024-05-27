@@ -4,6 +4,7 @@ go 1.22.3
 
 require (
 	github.com/caddyserver/caddy/v2 v2.7.6
+	github.com/daaku/ensure v1.0.1
 	golang.org/x/net v0.25.0
 )
 
@@ -22,7 +23,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/chzyer/readline v1.5.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect
-	github.com/daaku/ensure v1.0.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgraph-io/badger v1.6.2 // indirect
 	github.com/dgraph-io/badger/v2 v2.2007.4 // indirect

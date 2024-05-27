@@ -31,10 +31,9 @@ In terminal 2, start the sample server. This is actually the process that
 handles the HTTP requests, but it does not listen on any ports.
 
 ```
-go run ./example-server
+cd clientproxy
+go run ./cmd/example-server
 ```
-
-_Tip: for debugging `GODEBUG=http2debug=2 go run ./example-server` may be helpful._
 
 In terminal 3, make a request using `curl` to your caddy server:
 
