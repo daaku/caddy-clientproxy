@@ -20,6 +20,12 @@ import (
 // URL must contain the scheme, and the path must be correctly set to the
 // secret expected by the server.
 func DialAndServe(ctx context.Context, url string, h http.Handler) error {
+	ctx, cancel := context.WithCancel(ctx)
+
+	// this will ensure our background goroutine below will be released if our
+	// connection fails for reasons besides a context cancelation.
+	defer cancel()
+
 	u, err := urlp.Parse(url)
 	if err != nil {
 		return err
