@@ -58,6 +58,12 @@ func DialAndServe(ctx context.Context, url string, h http.Handler) error {
 			lastErrType.Store(errType)
 		},
 	}
+	// close the connection if the context is canceled. this will release the
+	// ServeConn and we'll return from the outer function.
+	go func() {
+		<-ctx.Done()
+		conn.Close()
+	}()
 	h2s.ServeConn(conn, &http2.ServeConnOpts{
 		Context: ctx,
 		Handler: h,
