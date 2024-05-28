@@ -6,10 +6,12 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	urlp "net/url"
+	"sync/atomic"
 
 	"golang.org/x/net/http2"
 )
@@ -50,10 +52,22 @@ func DialAndServe(ctx context.Context, url string, h http.Handler) error {
 	if _, err := conn.Write(b.Bytes()); err != nil {
 		return err
 	}
-	h2s := &http2.Server{}
+	var lastErrType atomic.Value
+	h2s := &http2.Server{
+		CountError: func(errType string) {
+			lastErrType.Store(errType)
+		},
+	}
 	h2s.ServeConn(conn, &http2.ServeConnOpts{
 		Context: ctx,
 		Handler: h,
 	})
-	return nil
+	if errType, ok := lastErrType.Load().(string); ok {
+		return fmt.Errorf("clientproxy: DialAndServe: ServeConn failed with %s", errType)
+	}
+	// if the contextErr is not set, we failed for an unknown reason.
+	if ctx.Err() != nil {
+		return nil
+	}
+	return errors.New("clientproxy: DialAndServe: unknown error")
 }
