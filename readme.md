@@ -1,12 +1,33 @@
 # caddy-client-proxy
 
-**Proof of concept. Work in progress.**
-
 This Caddy module provides a handler that allows for a client connection to
 be turned into a server. This way your backend server connects to your Caddy
 load balancer instance, and the requests are then sent over this connection. It
 allows for your backend server to not accept any public connections, and only
 requires it to support outgoing connections.
+
+# Usage
+
+1. Make sure you're using `https` as appropriate.
+1. Use a sufficiently long and good secret. Keep it secret.
+1. Order the handlers correctly. This is a _terminal_ handler, in that it does
+   not continue the chain if the reverse proxy is available.
+
+# Configuration
+
+You'll need to [order](https://caddyserver.com/docs/caddyfile/options#order)
+this handler, or use
+[route](https://caddyserver.com/docs/caddyfile/directives/route):
+
+```
+{
+	order client_proxy before respond
+}
+
+example.com {
+	client_proxy 46f20973162c43d09bf7ca2311a9c3ca
+}
+```
 
 # Implementation
 
