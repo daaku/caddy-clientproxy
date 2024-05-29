@@ -13,7 +13,7 @@ to accept any connections, and need only support outbound connections.
 1. Use a sufficiently large shared secret.
 1. Order the handlers correctly. This is a _terminal_ handler, in that it does
    not continue the chain if the reverse proxy is available.
-1. Use [clientproxyd](https://github.com/daaku/clientproxy) to make your
+1. Use [clientproxy](https://github.com/daaku/clientproxy) to make your
    server(s) available via your caddy.
 
 # Configuration
@@ -32,10 +32,10 @@ example.com {
 }
 ```
 
-# clientproxyd
+# clientproxy
 
 On the machine which hosts your origin server, you'll need to run
-[clientproxyd](https://github.com/daaku/clientproxy). This process will maintain
+[clientproxy](https://github.com/daaku/clientproxy). This process will maintain
 a connection to your Caddy instance, and accept and proxy requests to your
 origin server. You'll need a configuration file:
 
@@ -45,10 +45,10 @@ register = "https://example.com/46f20973162c43d09bf7ca2311a9c3ca"
 forward = "http://localhost:8080"
 ```
 
-Run the `clientproxyd` server:
+Run the `clientproxy` server:
 
 ```bash
-clientproxyd config.toml
+clientproxy config.toml
 ```
 
 Now a request to `https://example.com` should get proxied to your origin server.
