@@ -16,6 +16,12 @@ to accept any connections, and need only support outbound connections.
 1. Use [clientproxy](https://github.com/daaku/clientproxy) to make your
    server(s) available via your caddy.
 
+# Limitations
+
+1. A single TCP connection is used to connect to the backend.
+1. Only one active backend server is supported.
+1. Connection upgrades like WebSockets are not supported.
+
 # Configuration
 
 You'll need to [order](https://caddyserver.com/docs/caddyfile/options#order)
