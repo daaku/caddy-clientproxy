@@ -14,12 +14,12 @@ to accept any connections, and need only support outbound connections.
 1. Order the handlers correctly. This is a _terminal_ handler, in that it does
    not continue the chain if the reverse proxy is available.
 1. Use [clientproxy](https://github.com/daaku/clientproxy) to make your
-   server(s) available via your caddy.
+   origin(s) available via your caddy.
 
 # Limitations
 
-1. A single TCP connection is used to connect to the backend.
-1. Only one active backend server is supported.
+1. A single TCP connection is used to connect to the origin.
+1. Only one active origin is supported.
 1. Connection upgrades like WebSockets are not supported.
 
 # Configuration
@@ -40,10 +40,10 @@ example.com {
 
 # clientproxy
 
-On the machine which hosts your origin server, you'll need to run
+On the machine which hosts your origin, you'll need to run
 [clientproxy](https://github.com/daaku/clientproxy). This process will maintain
 a connection to your Caddy instance, and accept and proxy requests to your
-origin server. You'll need a configuration file:
+origin. You'll need a configuration file:
 
 ```toml
 [[proxy]]
@@ -51,22 +51,22 @@ register = "https://example.com/46f20973162c43d09bf7ca2311a9c3ca"
 forward = "http://localhost:8080"
 ```
 
-Run the `clientproxy` server:
+Run the `clientproxy` daemon:
 
 ```bash
 clientproxy config.toml
 ```
 
-Now a request to `https://example.com` should get proxied to your origin server.
+Now a request to `https://example.com` should get proxied to your origin.
 
 # Implementation
 
 In Caddy, when the module recieves a valid client request that intends to
-become the server, it Hijacks the connection, and converts it to a HTTP2 Client
+become the origin, it Hijacks the connection, and converts it to a HTTP2 Client
 Connection, which can be used as a `http.RoundTripper`. This serves as the
 reverse proxy target.
 
-The server makes a TLS secured HTTP/1.1 connection to Caddy, and then treats
+The origin makes a TLS secured HTTP/1.1 connection to Caddy, and then treats
 that connection as a HTTP2 Server Connection. It then starts serving requests on
 this connection.
 
