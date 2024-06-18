@@ -116,7 +116,7 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	if r.URL.Path[1:] == m.Secret {
+	if r.Header.Get("X-Client-Proxy") == m.Secret {
 		return m.acceptProxy(w, r)
 	}
 	if handler, ok := m.handler.Load().(*handler); ok {
