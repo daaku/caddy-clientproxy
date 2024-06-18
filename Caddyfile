@@ -6,5 +6,5 @@
 
 localhost:4430 {
 	tls internal
-	client_proxy this_is_the_secret_path
+	client_proxy this_is_the_secret
 }
