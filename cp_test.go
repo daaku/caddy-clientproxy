@@ -18,7 +18,7 @@ import (
 
 const secret = "the_secret"
 
-func newMiddleware(t testing.TB) *Middleware {
+func newMiddleware(_ testing.TB) *Middleware {
 	return &Middleware{Secret: secret}
 }
 

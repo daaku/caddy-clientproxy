@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -15,14 +16,21 @@ import (
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/caddyserver/caddy/v2/caddyconfig/httpcaddyfile"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
-	"golang.org/x/net/http2"
+	"github.com/hashicorp/yamux"
 )
 
-var h2t = http2.Transport{}
+const shutdownTimeout = time.Minute
 
-const (
-	shutdownTimeout = time.Minute
-)
+var yamuxConfig = &yamux.Config{
+	AcceptBacklog:          256,
+	EnableKeepAlive:        true,
+	KeepAliveInterval:      5 * time.Minute,
+	ConnectionWriteTimeout: 10 * time.Second,
+	MaxStreamWindowSize:    256 * 1024,
+	StreamCloseTimeout:     5 * time.Minute,
+	StreamOpenTimeout:      75 * time.Second,
+	LogOutput:              os.Stderr,
+}
 
 func init() {
 	caddy.RegisterModule(&Middleware{})
@@ -74,16 +82,16 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("client_proxy: must connect using HTTP/1.1: %w", err)
 	}
-	defer conn.Close() // backup close, normally h2conn.Shutdown will handle this
+	defer conn.Close() // backup close
 	if err := buf.Flush(); err != nil {
 		return fmt.Errorf("client_proxy: unexpected flush error: %w", err)
 	}
 	if buf.Reader.Buffered() > 0 {
 		conn = &bufConn{Conn: conn, Reader: buf.Reader}
 	}
-	h2conn, err := h2t.NewClientConn(conn)
+	yamuxClient, err := yamux.Client(conn, yamuxConfig)
 	if err != nil {
-		return fmt.Errorf("client_proxy: unable to create ClientConn: %w", err)
+		return fmt.Errorf("client_proxy: unable to create yamux.Client: %w", err)
 	}
 
 	// close the old one, if one is there
@@ -95,21 +103,23 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 	m.handler.Store(&handler{
 		done: done,
 		proxy: &httputil.ReverseProxy{
-			Transport: h2conn,
+			Transport: &http.Transport{
+				DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+					return yamuxClient.Open()
+				},
+			},
 			Director: func(r *http.Request) {
-				// TODO: what
 				r.URL.Scheme = "https"
+				r.URL.Host = r.Host
 			},
 		},
 	})
 	<-done // wait until we're being replaced
-	ctx, cancel := context.WithTimeout(r.Context(), shutdownTimeout)
-	defer cancel()
-	if err := h2conn.Shutdown(ctx); err != nil {
+	if err := yamuxClient.Close(); err != nil {
 		if errors.Is(err, net.ErrClosed) {
 			return nil
 		}
-		return fmt.Errorf("client_proxy: error shutting down ClientConn: %w", err)
+		return fmt.Errorf("client_proxy: error shutting down yamux.Client: %w", err)
 	}
 	return nil
 }

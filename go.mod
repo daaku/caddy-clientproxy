@@ -5,7 +5,7 @@ go 1.22.3
 require (
 	github.com/caddyserver/caddy/v2 v2.8.4
 	github.com/daaku/ensure v1.0.1
-	golang.org/x/net v0.29.0
+	github.com/hashicorp/yamux v0.1.1
 )
 
 require (
@@ -103,6 +103,7 @@ require (
 	golang.org/x/crypto/x509roots/fallback v0.0.0-20240529182030-349231f7e4e4 // indirect
 	golang.org/x/exp v0.0.0-20240529005216-23cca8864a10 // indirect
 	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/term v0.24.0 // indirect

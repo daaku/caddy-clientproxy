@@ -62,13 +62,9 @@ Now a request to `https://example.com` should get proxied to your origin.
 # Implementation
 
 In Caddy, when the module recieves a valid client request that intends to
-become the origin, it Hijacks the connection, and converts it to a HTTP2 Client
-Connection, which can be used as a `http.RoundTripper`. This serves as the
-reverse proxy target.
-
-The origin makes a TLS secured HTTP/1.1 connection to Caddy, and then treats
-that connection as a HTTP2 Server Connection. It then starts serving requests on
-this connection.
+become the origin, it Hijacks the connection, and uses
+[yamux](https://github.com/hashicorp/yamux) to make the client the server.
+This serves as the reverse proxy target.
 
 # Testing
 
