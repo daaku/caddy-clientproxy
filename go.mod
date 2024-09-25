@@ -5,7 +5,7 @@ go 1.22.3
 require (
 	github.com/caddyserver/caddy/v2 v2.8.4
 	github.com/daaku/ensure v1.0.1
-	github.com/hashicorp/yamux v0.1.1
+	github.com/hashicorp/yamux v0.1.2
 )
 
 require (
