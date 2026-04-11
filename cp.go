@@ -1,3 +1,4 @@
+// Package clientproxy provide the Caddy clientproxy module.
 package clientproxy
 
 import (
@@ -18,8 +19,6 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/hashicorp/yamux"
 )
-
-const shutdownTimeout = time.Minute
 
 var yamuxConfig = &yamux.Config{
 	AcceptBacklog:          256,
@@ -73,7 +72,7 @@ func (m *Middleware) Validate() error {
 	return nil
 }
 
-func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
+func (m *Middleware) acceptProxy(w http.ResponseWriter) error {
 	rc := http.NewResponseController(w)
 	if err := rc.EnableFullDuplex(); err != nil {
 		return fmt.Errorf("client_proxy: must connect using HTTP/1.1: %w", err)
@@ -127,7 +126,7 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter, r *http.Request) error {
 // ServeHTTP implements caddyhttp.MiddlewareHandler.
 func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	if r.Header.Get("X-Client-Proxy") == m.Secret {
-		return m.acceptProxy(w, r)
+		return m.acceptProxy(w)
 	}
 	if handler, ok := m.handler.Load().(*handler); ok {
 		handler.proxy.ServeHTTP(w, r)
