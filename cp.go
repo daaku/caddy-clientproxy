@@ -21,7 +21,11 @@ import (
 	"github.com/hashicorp/yamux"
 )
 
-const appID = "client_proxy_app"
+const (
+	appID     = "client_proxy_app"
+	sRegister = "client_proxy_register"
+	sDispatch = "client_proxy_dispatch"
+)
 
 var yamuxConfig = &yamux.Config{
 	AcceptBacklog:          256,
@@ -38,8 +42,10 @@ func init() {
 	caddy.RegisterModule(&App{})
 	caddy.RegisterModule(&Register{})
 	caddy.RegisterModule(&Dispatch{})
-	httpcaddyfile.RegisterHandlerDirective("client_proxy_register", parseCaddyfileRegister)
-	httpcaddyfile.RegisterHandlerDirective("client_proxy_dispatch", parseCaddyfileDispatch)
+	httpcaddyfile.RegisterHandlerDirective(sRegister, parseCaddyfileRegister)
+	httpcaddyfile.RegisterHandlerDirective(sDispatch, parseCaddyfileDispatch)
+	httpcaddyfile.RegisterDirectiveOrder(sDispatch, httpcaddyfile.Before, "respond")
+	httpcaddyfile.RegisterDirectiveOrder(sRegister, httpcaddyfile.Before, "respond")
 }
 
 // App stores the shared handlers that have been registered.
@@ -116,8 +122,8 @@ func (m *Register) Provision(ctx caddy.Context) error {
 }
 
 // Validate implements caddy.Validator.
-func (r *Register) Validate() error {
-	if r.Secret == "" {
+func (m *Register) Validate() error {
+	if m.Secret == "" {
 		return fmt.Errorf("no secret")
 	}
 	return nil
