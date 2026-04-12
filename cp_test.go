@@ -16,14 +16,8 @@ import (
 // second client registered
 //
 
-const secret = "the_secret"
-
-func newMiddleware(_ testing.TB) *Dispatch {
-	return &Dispatch{Name: "foo"}
-}
-
 func TestNoHandler(t *testing.T) {
-	m := newMiddleware(t)
+	m := &Dispatch{Name: "foo", app: &App{}}
 	called := false
 	gw := httptest.NewRecorder()
 	gr := httptest.NewRequest(http.MethodGet, "/", nil)
