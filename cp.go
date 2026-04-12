@@ -6,11 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"os"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -19,6 +20,8 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 	"github.com/hashicorp/yamux"
 )
+
+const appID = "client_proxy_app"
 
 var yamuxConfig = &yamux.Config{
 	AcceptBacklog:          256,
@@ -32,8 +35,53 @@ var yamuxConfig = &yamux.Config{
 }
 
 func init() {
-	caddy.RegisterModule(&Middleware{})
-	httpcaddyfile.RegisterHandlerDirective("client_proxy", parseCaddyfile)
+	caddy.RegisterModule(&App{})
+	caddy.RegisterModule(&Register{})
+	caddy.RegisterModule(&Dispatch{})
+	httpcaddyfile.RegisterHandlerDirective("client_proxy_register", parseCaddyfileRegister)
+	httpcaddyfile.RegisterHandlerDirective("client_proxy_dispatch", parseCaddyfileDispatch)
+}
+
+// App stores the shared handlers that have been registered.
+// This is how Register and Dispatch share state.
+type App struct {
+	app sync.Map
+}
+
+// CaddyModule returns the Caddy module information.
+func (*App) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  appID,
+		New: func() caddy.Module { return new(App) },
+	}
+}
+
+// Start and Stop causes us to implement `caddy.App` and ensures our instance
+// gets cached on `ctx.App` use.
+func (g *App) Start() error {
+	return nil
+}
+
+func (g *App) Stop() error {
+	return nil
+}
+
+func (g *App) setHandler(name string, rp *httputil.ReverseProxy) *handler {
+	h := &handler{
+		done:  make(chan struct{}),
+		proxy: rp,
+	}
+	if old, found := g.app.Swap(name, h); found {
+		close(old.(*handler).done)
+	}
+	return h
+}
+
+func (g *App) getHandler(name string) *handler {
+	if h, found := g.app.Load(name); found {
+		return h.(*handler)
+	}
+	return nil
 }
 
 type handler struct {
@@ -41,38 +89,65 @@ type handler struct {
 	done  chan struct{}
 }
 
-// Middleware implements an HTTP handler that allows for a client to become the
-// reverse proxy.
-type Middleware struct {
+// Register allows for client proxies to register themselves
+// to become available to the ClientProxy handler.
+type Register struct {
 	// The secret to allow for registering a client.
 	Secret string `json:"secret,omitempty"`
-
-	// stores a *handler, when available
-	handler atomic.Value
+	app    *App
 }
 
 // CaddyModule returns the Caddy module information.
-func (*Middleware) CaddyModule() caddy.ModuleInfo {
+func (*Register) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.client_proxy",
-		New: func() caddy.Module { return new(Middleware) },
+		ID:  "http.handlers.client_proxy_register",
+		New: func() caddy.Module { return new(Register) },
 	}
 }
 
 // Provision implements caddy.Provisioner.
-func (m *Middleware) Provision(ctx caddy.Context) error {
+func (m *Register) Provision(ctx caddy.Context) error {
+	app, err := ctx.App(appID)
+	if err != nil {
+		return fmt.Errorf("error provisioning %s: %w", appID, err)
+	}
+	m.app = app.(*App)
 	return nil
 }
 
 // Validate implements caddy.Validator.
-func (m *Middleware) Validate() error {
-	if m.Secret == "" {
+func (r *Register) Validate() error {
+	if r.Secret == "" {
 		return fmt.Errorf("no secret")
 	}
 	return nil
 }
 
-func (m *Middleware) acceptProxy(w http.ResponseWriter) error {
+// UnmarshalCaddyfile implements caddyfile.Unmarshaler.
+func (m *Register) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+	d.Next() // consume directive name
+
+	// require an argument
+	if !d.NextArg() {
+		return d.ArgErr()
+	}
+
+	// store the argument
+	m.Secret = d.Val()
+	return nil
+}
+
+func (m *Register) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	if r.Header.Get("X-Client-Proxy-Secret") != m.Secret {
+		log.Println("ignoring request to register client proxy without secret")
+		return next.ServeHTTP(w, r)
+	}
+	name := r.Header.Get("X-Client-Proxy-Name")
+	if name == "" {
+		log.Println("ignoring request to register client proxy without name")
+		return next.ServeHTTP(w, r)
+	}
+
 	rc := http.NewResponseController(w)
 	if err := rc.EnableFullDuplex(); err != nil {
 		return fmt.Errorf("client_proxy: must connect using HTTP/1.1: %w", err)
@@ -92,28 +167,19 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter) error {
 	if err != nil {
 		return fmt.Errorf("client_proxy: unable to create yamux.Client: %w", err)
 	}
-
-	// close the old one, if one is there
-	if handler, ok := m.handler.Load().(*handler); ok {
-		close(handler.done)
-	}
-
-	done := make(chan struct{})
-	m.handler.Store(&handler{
-		done: done,
-		proxy: &httputil.ReverseProxy{
-			Transport: &http.Transport{
-				DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-					return yamuxClient.Open()
-				},
-			},
-			Director: func(r *http.Request) {
-				r.URL.Scheme = "https"
-				r.URL.Host = r.Host
+	rp := &httputil.ReverseProxy{
+		Transport: &http.Transport{
+			DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				return yamuxClient.Open()
 			},
 		},
-	})
-	<-done // wait until we're being replaced
+		Director: func(r *http.Request) {
+			r.URL.Scheme = "https"
+			r.URL.Host = r.Host
+		},
+	}
+	h := m.app.setHandler(name, rp)
+	<-h.done // wait until we're being replaced
 	if err := yamuxClient.Close(); err != nil {
 		if errors.Is(err, net.ErrClosed) {
 			return nil
@@ -123,20 +189,58 @@ func (m *Middleware) acceptProxy(w http.ResponseWriter) error {
 	return nil
 }
 
-// ServeHTTP implements caddyhttp.MiddlewareHandler.
-func (m *Middleware) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	if r.Header.Get("X-Client-Proxy") == m.Secret {
-		return m.acceptProxy(w)
+// parseCaddyfileRegister unmarshals tokens from h into a new Middleware.
+func parseCaddyfileRegister(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+	var m Register
+	err := m.UnmarshalCaddyfile(h.Dispenser)
+	return &m, err
+}
+
+// Dispatch implements an HTTP handler that allows for a client to become the
+// reverse proxy.
+type Dispatch struct {
+	// The named ClientProxy to dispatch to, if available.
+	Name string `json:"name"`
+	app  *App
+}
+
+// CaddyModule returns the Caddy module information.
+func (*Dispatch) CaddyModule() caddy.ModuleInfo {
+	return caddy.ModuleInfo{
+		ID:  "http.handlers.client_proxy_dispatch",
+		New: func() caddy.Module { return new(Dispatch) },
 	}
-	if handler, ok := m.handler.Load().(*handler); ok {
-		handler.proxy.ServeHTTP(w, r)
+}
+
+// Provision implements caddy.Provisioner.
+func (m *Dispatch) Provision(ctx caddy.Context) error {
+	app, err := ctx.App(appID)
+	if err != nil {
+		return fmt.Errorf("error provisioning %s: %w", appID, err)
+	}
+	m.app = app.(*App)
+	return nil
+}
+
+// Validate implements caddy.Validator.
+func (m *Dispatch) Validate() error {
+	if m.Name == "" {
+		return fmt.Errorf("no name")
+	}
+	return nil
+}
+
+// ServeHTTP implements caddyhttp.MiddlewareHandler.
+func (m *Dispatch) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	if h := m.app.getHandler(m.Name); h != nil {
+		h.proxy.ServeHTTP(w, r)
 		return nil
 	}
 	return next.ServeHTTP(w, r)
 }
 
 // UnmarshalCaddyfile implements caddyfile.Unmarshaler.
-func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
+func (m *Dispatch) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	d.Next() // consume directive name
 
 	// require an argument
@@ -145,13 +249,13 @@ func (m *Middleware) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	}
 
 	// store the argument
-	m.Secret = d.Val()
+	m.Name = d.Val()
 	return nil
 }
 
-// parseCaddyfile unmarshals tokens from h into a new Middleware.
-func parseCaddyfile(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
-	var m Middleware
+// parseCaddyfileDispatch unmarshals tokens from h into a new Middleware.
+func parseCaddyfileDispatch(h httpcaddyfile.Helper) (caddyhttp.MiddlewareHandler, error) {
+	var m Dispatch
 	err := m.UnmarshalCaddyfile(h.Dispenser)
 	return &m, err
 }
@@ -178,8 +282,12 @@ func (c *bufConn) Read(p []byte) (int, error) {
 
 // Interface guards
 var (
-	_ caddy.Provisioner           = (*Middleware)(nil)
-	_ caddy.Validator             = (*Middleware)(nil)
-	_ caddyhttp.MiddlewareHandler = (*Middleware)(nil)
-	_ caddyfile.Unmarshaler       = (*Middleware)(nil)
+	_ caddy.Provisioner           = (*Register)(nil)
+	_ caddy.Validator             = (*Register)(nil)
+	_ caddyhttp.MiddlewareHandler = (*Register)(nil)
+	_ caddyfile.Unmarshaler       = (*Register)(nil)
+	_ caddy.Provisioner           = (*Dispatch)(nil)
+	_ caddy.Validator             = (*Dispatch)(nil)
+	_ caddyhttp.MiddlewareHandler = (*Dispatch)(nil)
+	_ caddyfile.Unmarshaler       = (*Dispatch)(nil)
 )

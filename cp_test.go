@@ -18,8 +18,8 @@ import (
 
 const secret = "the_secret"
 
-func newMiddleware(_ testing.TB) *Middleware {
-	return &Middleware{Secret: secret}
+func newMiddleware(_ testing.TB) *Dispatch {
+	return &Dispatch{Name: "foo"}
 }
 
 func TestNoHandler(t *testing.T) {
