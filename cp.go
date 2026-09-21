@@ -30,7 +30,7 @@ const (
 var yamuxConfig = &yamux.Config{
 	AcceptBacklog:          256,
 	EnableKeepAlive:        true,
-	KeepAliveInterval:      5 * time.Minute,
+	KeepAliveInterval:      30 * time.Second,
 	ConnectionWriteTimeout: 10 * time.Second,
 	MaxStreamWindowSize:    256 * 1024,
 	StreamCloseTimeout:     5 * time.Minute,
