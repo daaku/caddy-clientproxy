@@ -145,7 +145,6 @@ func (m *Register) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 
 func (m *Register) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
 	if r.Header.Get("X-Client-Proxy-Secret") != m.Secret {
-		log.Println("ignoring request to register client proxy without secret")
 		return next.ServeHTTP(w, r)
 	}
 	name := r.Header.Get("X-Client-Proxy-Name")
